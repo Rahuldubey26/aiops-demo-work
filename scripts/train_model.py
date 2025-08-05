@@ -42,7 +42,7 @@ def main(instance_id, output_path):
     # Here, we use one instance for simplicity.
     cpu_data = get_historical_cpu_data(instance_id)
 
-    if len(cpu_data) < 100:
+    if len(cpu_data) < 1:
         print("Not enough data points to train a reliable model. Exiting.")
         return
 
