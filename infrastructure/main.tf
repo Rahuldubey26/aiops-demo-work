@@ -47,10 +47,13 @@ resource "aws_lambda_function" "anomaly_detector" {
   source_code_hash = data.archive_file.anomaly_detector_zip.output_base64sha256
   timeout          = 60
 
+  # ADD THIS BLOCK TO ATTACH THE LAYER
+  layers = [aws_lambda_layer_version.scikit_learn_layer.arn]
+
   environment {
     variables = {
       SNS_TOPIC_ARN = aws_sns_topic.anomalies.arn
-      MODEL_PATH    = "model.joblib"
+      MODEL_PATH    = "/opt/python/model.joblib" # The model is now loaded from the layer
       RESOURCE_TAG  = "Monitored"
     }
   }
@@ -127,4 +130,22 @@ resource "aws_lambda_event_source_mapping" "trigger_log_analyzer" {
 resource "aws_lambda_event_source_mapping" "trigger_remediation_engine" {
   event_source_arn = aws_sns_topic.critical_alerts.arn
   function_name    = aws_lambda_function.remediation_engine.arn
+}
+
+# Add this block to infrastructure/main.tf
+
+# --- Lambda Layer for Scikit-Learn ---
+
+data "archive_file" "scikit_learn_layer_zip" {
+  type        = "zip"
+  # Source dir now points to the folder prepared by the CI/CD pipeline
+  source_dir  = "${path.module}/../lambda_layers/python/"
+  output_path = "${path.module}/../dist/scikit_learn_layer.zip"
+}
+
+resource "aws_lambda_layer_version" "scikit_learn_layer" {
+  layer_name          = "${var.project_name}-scikit-learn-layer"
+  filename            = data.archive_file.scikit_learn_layer_zip.output_path
+  source_code_hash    = data.archive_file.scikit_learn_layer_zip.output_base64sha256
+  compatible_runtimes = ["python3.9"]
 }
