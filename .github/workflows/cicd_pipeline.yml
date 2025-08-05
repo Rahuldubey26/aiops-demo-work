@@ -42,6 +42,7 @@ jobs:
       run: |
         # 1. Install dependencies for Lambdas that DON'T use the layer.
         # Notice that src/anomaly_detector is NOT in this list.
+
         pip install -r src/log_analyzer_rca/requirements.txt -t src/log_analyzer_rca/
         pip install -r src/remediation_engine/requirements.txt -t src/remediation_engine/
 
