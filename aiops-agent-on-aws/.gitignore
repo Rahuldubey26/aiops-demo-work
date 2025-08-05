@@ -1,0 +1,34 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+*.joblib
+model.pkl
+
+# Node / Frontend
+frontend/node_modules/
+frontend/build/
+.DS_Store
+
+# AWS / Serverless
+.serverless/
+package/
+*.zip
