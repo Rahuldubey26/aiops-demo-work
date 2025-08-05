@@ -1,3 +1,5 @@
+# .github/workflows/cicd_pipeline.yml
+
 name: Deploy AIOps Agent and Dashboard
 
 on:
@@ -6,8 +8,11 @@ on:
     - main
 
 env:
+  # Set the AWS Region for all jobs
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/${{ secrets.PROJECT_NAME }}/frontend
+  # Define ONLY the repository name. The full URL will be constructed later.
+  # This fixes the bug.
+  ECR_REPOSITORY_NAME: ${{ secrets.PROJECT_NAME }}/frontend
 
 jobs:
   deploy-backend:
@@ -17,6 +22,8 @@ jobs:
       id-token: write
       contents: read
     outputs:
+      # This output is good practice but not strictly needed by the next job anymore.
+      # We keep it in case you need it for other jobs in the future.
       ecr_repo_url: ${{ steps.tf-apply.outputs.ecr_repository_url }}
 
     steps:
@@ -29,6 +36,18 @@ jobs:
         role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.IAM_ROLE_NAME }}
         aws-region: ${{ env.AWS_REGION }}
 
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # IMPORTANT: Install Lambda dependencies before packaging with Terraform
+    - name: Install Python dependencies for Lambdas
+      run: |
+        pip install -r src/anomaly_detector/requirements.txt -t src/anomaly_detector/
+        pip install -r src/log_analyzer_rca/requirements.txt -t src/log_analyzer_rca/
+        pip install -r src/remediation_engine/requirements.txt -t src/remediation_engine/
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
@@ -38,7 +57,10 @@ jobs:
     - name: Terraform Apply
       id: tf-apply
       run: |
-        terraform -chdir=infrastructure apply -auto-approve -var="alert_email=${{ secrets.ALERT_EMAIL }}" -var="project_name=${{ secrets.PROJECT_NAME }}"
+        terraform -chdir=infrastructure apply -auto-approve \
+          -var="alert_email=${{ secrets.ALERT_EMAIL }}" \
+          -var="project_name=${{ secrets.PROJECT_NAME }}" \
+          -var="ec2_key_name=${{ secrets.EC2_KEY_NAME }}"
         echo "ecr_repository_url=$(terraform -chdir=infrastructure output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
 
   build-and-deploy-frontend:
@@ -66,9 +88,14 @@ jobs:
     - name: Build, tag, and push image to Amazon ECR
       id: build-image
       env:
+        # The login-ecr step provides the full registry URL.
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: latest
+        # Use a unique and traceable image tag instead of 'latest'.
+        IMAGE_TAG: ${{ github.sha }}
       run: |
-        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ./frontend
-        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
-        echo "image=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        # Build, tag with commit SHA, and tag with 'latest'
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:$IMAGE_TAG -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:latest ./frontend
+
+        # Push both tags to ECR
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:$IMAGE_TAG
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:latest
