@@ -20,7 +20,7 @@ venv/
 *.egg-info/
 dist/
 build/
-*.joblib
+
 model.pkl
 
 # Node / Frontend
