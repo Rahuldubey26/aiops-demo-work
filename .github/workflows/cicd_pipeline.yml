@@ -40,20 +40,19 @@ jobs:
 
     - name: Install dependencies and prepare model
       run: |
-        # 1. Install dependencies for Lambdas that DON'T use the layer
+        # 1. Install dependencies for Lambdas that DON'T use the layer.
+        # Notice that src/anomaly_detector is NOT in this list.
         pip install -r src/log_analyzer_rca/requirements.txt -t src/log_analyzer_rca/
         pip install -r src/remediation_engine/requirements.txt -t src/remediation_engine/
 
-        # 2. Install dependencies FOR the layer
-        pip install -r lambda_layers/requirements.txt -t lambda_layers/python/
+        # 2. Install dependencies FOR the layer using the special command to build a small package.
+        # THIS IS THE MOST IMPORTANT FIX.
+        pip install --platform manylinux2014_x86_64 --target=lambda_layers/python/ --implementation cp --python-version 3.9 --only-binary=:all: --upgrade -r lambda_layers/requirements.txt
 
-        # 3. Train the ML model
-        echo "Training model..."
+        # 3. This step is to ensure the script dependencies are available for the next command.
         pip install -r scripts/requirements.txt
-        # The model must exist for this step to succeed. 
-        # Ensure you have run train_model.py locally and committed model.joblib.
 
-        # 4. Copy the trained model INTO the layer directory
+        # 4. Copy the pre-trained model INTO the layer directory so it gets packaged with the libraries.
         echo "Copying model into layer..."
         cp src/anomaly_detector/model.joblib lambda_layers/python/
 
@@ -70,7 +69,7 @@ jobs:
           -var="alert_email=${{ secrets.ALERT_EMAIL }}" \
           -var="project_name=${{ secrets.PROJECT_NAME }}" \
           -var="ec2_key_name=${{ secrets.EC2_KEY_NAME }}"
-        echo "ecr_repository_url=$(terraform -chdir=infrastructure output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "ecr_repository_url=$(terraform -chdir=infrastructure output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
 
   build-and-deploy-frontend:
     name: Build and Deploy Frontend Dashboard
