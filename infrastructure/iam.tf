@@ -110,10 +110,28 @@ resource "aws_iam_role" "app_runner_instance_role" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "app_runner_dynamodb_access" {
-  role       = aws_iam_role.app_runner_instance_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess" # For simplicity, can be scoped down
+
+
+
+
+# ADD THIS BLOCK INSTEAD
+resource "aws_iam_role_policy" "app_runner_dynamodb_policy" {
+  name = "${var.project_name}-app-runner-dynamodb-policy"
+  role = aws_iam_role.app_runner_instance_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = [
+          "dynamodb:Scan",
+          "dynamodb:GetItem",
+          "dynamodb:Query"
+        ],
+        Effect   = "Allow",
+        # This is more secure as it only allows access to THIS specific table
+        Resource = aws_dynamodb_table.anomalies.arn 
+      },
+    ]
+  })
 }
-
-
-
