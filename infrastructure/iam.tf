@@ -127,3 +127,6 @@ resource "aws_iam_role_policy_attachment" "app_runner_dynamodb_access" {
   role       = aws_iam_role.app_runner_instance_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess" # For simplicity, can be scoped down
 }
+
+
+

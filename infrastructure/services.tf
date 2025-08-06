@@ -120,5 +120,7 @@ resource "aws_apprunner_service" "frontend_service" {
   }
 
   # Ensure the IAM role for ECR access exists before creating the service
-  depends_on = [aws_iam_role.app_runner_ecr_access_role]
+   depends_on = [
+    aws_iam_role_policy_attachment.app_runner_ecr_attach
+  ]
 }
