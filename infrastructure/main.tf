@@ -130,15 +130,36 @@ resource "aws_lambda_permission" "allow_cloudwatch" {
   source_arn    = aws_cloudwatch_event_rule.every_5_minutes.arn
 }
 
-resource "aws_lambda_event_source_mapping" "trigger_log_analyzer" {
-  event_source_arn = aws_sns_topic.anomalies.arn
-  function_name    = aws_lambda_function.log_analyzer_rca.arn
+# ADD THIS BLOCK TO CORRECTLY TRIGGER THE LOG ANALYZER
+resource "aws_sns_topic_subscription" "log_analyzer_subscription" {
+  topic_arn = aws_sns_topic.anomalies.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.log_analyzer_rca.arn
 }
 
-resource "aws_lambda_event_source_mapping" "trigger_remediation_engine" {
-  event_source_arn = aws_sns_topic.critical_alerts.arn
-  function_name    = aws_lambda_function.remediation_engine.arn
+resource "aws_lambda_permission" "allow_sns_to_log_analyzer" {
+  statement_id  = "AllowSNSToLogAnalyzer"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.log_analyzer_rca.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.anomalies.arn
 }
+
+# ADD THIS BLOCK TO CORRECTLY TRIGGER THE REMEDIATION ENGINE
+resource "aws_sns_topic_subscription" "remediation_engine_subscription" {
+  topic_arn = aws_sns_topic.critical_alerts.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.remediation_engine.arn
+}
+
+resource "aws_lambda_permission" "allow_sns_to_remediation_engine" {
+  statement_id  = "AllowSNSToRemediationEngine"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.remediation_engine.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.critical_alerts.arn
+}
+
 
 
 # --- DELETED: The entire Lambda Layer section ---
