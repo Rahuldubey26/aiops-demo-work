@@ -86,26 +86,13 @@ resource "aws_iam_role" "app_runner_ecr_access_role" {
   })
 }
 
-resource "aws_iam_policy" "app_runner_ecr_policy" {
-  name = "${var.project_name}-app-runner-ecr-policy"
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action = [
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:DescribeImages",
-        "ecr:BatchCheckLayerAvailability"
-      ],
-      Effect   = "Allow",
-      Resource = aws_ecr_repository.frontend.arn
-    }]
-  })
-}
 
+
+# REPLACE it with this block
 resource "aws_iam_role_policy_attachment" "app_runner_ecr_attach" {
   role       = aws_iam_role.app_runner_ecr_access_role.name
-  policy_arn = aws_iam_policy.app_runner_ecr_policy.arn
+  # Use the standard AWS-managed policy for this. It's more reliable.
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
 }
 
 # IAM Role for the Streamlit app instance to access DynamoDB
