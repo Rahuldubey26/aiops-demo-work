@@ -10,19 +10,18 @@ on:
 env:
   # Set the AWS Region for all jobs
   AWS_REGION: us-east-1
-  # Define ONLY the repository name. The full URL will be constructed later.
+  # The name of the ECR repository we will use for BOTH the Lambda and Frontend images
   ECR_REPOSITORY_NAME: ${{ secrets.PROJECT_NAME }}/frontend
 
 jobs:
+  # JOB 1: Deploy the core infrastructure with Terraform.
+  # This job's responsibility is to create the "hardware" for our application.
   deploy-backend:
     name: Deploy Backend Infrastructure
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-    outputs:
-      ecr_repo_url: ${{ steps.tf-apply.outputs.ecr_repository_url }}
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -38,48 +37,35 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install dependencies and prepare model
+    # This step is now much simpler. It only prepares the simple .zip-based Lambdas.
+    # It NO LONGER builds the large anomaly_detector.
+    - name: Install dependencies for Zip-based Lambdas
       run: |
-        # 1. Install dependencies for Lambdas that DON'T use the layer.
-        # Notice that src/anomaly_detector is NOT in this list.
-
         pip install -r src/log_analyzer_rca/requirements.txt -t src/log_analyzer_rca/
         pip install -r src/remediation_engine/requirements.txt -t src/remediation_engine/
-
-        # 2. Install dependencies FOR the layer using the special command to build a small package.
-        # THIS IS THE MOST IMPORTANT FIX.
-        pip install --platform manylinux2014_x86_64 --target=lambda_layers/python/ --implementation cp --python-version 3.9 --only-binary=:all: --upgrade -r lambda_layers/requirements.txt
-
-        # 3. This step is to ensure the script dependencies are available for the next command.
-        pip install -r scripts/requirements.txt
-
-        # 4. Copy the pre-trained model INTO the layer directory so it gets packaged with the libraries.
-        echo "Copying model into layer..."
-        cp src/anomaly_detector/model.joblib lambda_layers/python/
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    - name: Terraform Init
+    - name: Terraform Init (with S3 Backend)
       run: terraform -chdir=infrastructure init
 
     - name: Terraform Apply
-      id: tf-apply
       run: |
         terraform -chdir=infrastructure apply -auto-approve \
           -var="alert_email=${{ secrets.ALERT_EMAIL }}" \
           -var="project_name=${{ secrets.PROJECT_NAME }}" \
           -var="ec2_key_name=${{ secrets.EC2_KEY_NAME }}"
-          echo "ecr_repository_url=$(terraform -chdir=infrastructure output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
 
-  build-and-deploy-frontend:
-    name: Build and Deploy Frontend Dashboard
+  # JOB 2: Build and deploy the Anomaly Detector Lambda Image.
+  # This job runs after the infrastructure (like the ECR repo) exists.
+  build-and-deploy-lambda:
+    name: Build and Deploy Anomaly Detector Lambda
     runs-on: ubuntu-latest
     needs: deploy-backend
     permissions:
       id-token: write
       contents: read
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -94,11 +80,43 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build, tag, and push image to Amazon ECR
-      id: build-image
+    - name: Build, tag, and push Lambda image to Amazon ECR
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
       run: |
-        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:$IMAGE_TAG -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:latest ./frontend
-        docker push --all-tags $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}
+        # Build the Docker image from the anomaly_detector's Dockerfile
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:anomaly-detector-latest ./src/anomaly_detector
+        # Push the image to ECR
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:anomaly-detector-latest
+
+  # JOB 3: Build and deploy the Streamlit Frontend Image.
+  # This job also runs after the infrastructure exists and can run in parallel with the Lambda build.
+  build-and-deploy-frontend:
+    name: Build and Deploy Frontend Dashboard
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.IAM_ROLE_NAME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push Frontend image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        # Build the Docker image from the frontend's Dockerfile
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:latest ./frontend
+        # Push the image to ECR
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_NAME }}:latest
