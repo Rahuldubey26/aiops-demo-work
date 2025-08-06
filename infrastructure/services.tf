@@ -102,7 +102,7 @@ resource "aws_apprunner_service" "frontend_service" {
   # Configuration for the compute instance running the app
   instance_configuration {
     cpu               = "1024" # 1 vCPU
-    memory            = "4096" # 2 GB
+    memory            = "4096" 
     instance_role_arn = aws_iam_role.app_runner_instance_role.arn # Grants permissions to the running container
   }
 
