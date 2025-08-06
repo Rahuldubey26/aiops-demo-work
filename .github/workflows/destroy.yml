@@ -1,0 +1,73 @@
+# .github/workflows/destroy.yml
+
+name: Destroy AIOps Infrastructure
+
+# This workflow is triggered manually
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm you want to tear down all infrastructure.'
+        required: true
+        default: 'do-not-destroy'
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  # JOB 1: Clean up the application images from ECR first.
+  # Terraform cannot delete an ECR repository if it contains images.
+  cleanup-ecr:
+    name: 1. Clean ECR Repository
+    runs-on: ubuntu-latest
+    # This job only runs if you correctly typed "destroy"
+    if: github.event.inputs.confirm == 'destroy'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.IAM_ROLE_NAME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Empty ECR Repository
+      run: |
+        echo "Finding and deleting images in ${{ secrets.PROJECT_NAME }}/frontend..."
+        aws ecr batch-delete-image \
+          --repository-name ${{ secrets.PROJECT_NAME }}/frontend \
+          --image-ids "$(aws ecr list-images --repository-name ${{ secrets.PROJECT_NAME }}/frontend --query 'imageIds[*]' --output json)" \
+          || echo "Repository is already empty or does not exist."
+
+  # JOB 2: Run terraform destroy now that ECR is clean.
+  terraform-destroy:
+    name: 2. Destroy Terraform Infrastructure
+    runs-on: ubuntu-latest
+    needs: cleanup-ecr # This job waits for the ECR cleanup to finish
+    if: github.event.inputs.confirm == 'destroy'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.IAM_ROLE_NAME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init (with S3 Backend)
+      run: terraform -chdir=infrastructure init
+
+    - name: Terraform Destroy
+      run: |
+        terraform -chdir=infrastructure destroy -auto-approve \
+          -var="alert_email=${{ secrets.ALERT_EMAIL }}" \
+          -var="project_name=${{ secrets.PROJECT_NAME }}" \
+          -var="ec2_key_name=${{ secrets.EC2_KEY_NAME }}"
